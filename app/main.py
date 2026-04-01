@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import companies, products, customers, purchases, stats, charts, reports, ml, auth, dashboard
+from app.routers import companies, products, customers, purchases, stats, charts, reports, ml, auth, dashboard, company_products
 
 app = FastAPI(title="System Admin API")
 
@@ -22,6 +22,7 @@ app.include_router(charts.router)
 app.include_router(reports.router)
 app.include_router(ml.router)
 app.include_router(dashboard.router)
+app.include_router(company_products.router)
 
 
 @app.get("/")

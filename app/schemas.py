@@ -104,3 +104,10 @@ class PurchasesByMonthResponse(BaseModel):
     month: str
     total_purchases: int
     total_sales: float
+
+
+# ─── Company Product ───────────────────────────────────
+class CompanyProductCreate(BaseModel):
+    product_id: int
+    company_id: int
+    price: float
