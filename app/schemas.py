@@ -47,6 +47,13 @@ class CustomerBase(BaseModel):
     last_name: Optional[str] = None
     identity_document: Optional[str] = None
 
+class CustomerCreate(BaseModel):
+    first_name: str
+    last_name: Optional[str] = None
+    birth_date: Optional[date] = None
+    identity_document: Optional[str] = None
+    image_url: Optional[str] = None
+
 
 class CustomerResponse(CustomerBase):
     id: int
