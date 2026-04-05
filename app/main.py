@@ -5,6 +5,16 @@ from prometheus_fastapi_instrumentator import Instrumentator
 import logging
 import logging_loki
 
+# OpenTelemetry
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from opentelemetry.sdk.resources import Resource
+
+# --- Loki logging ---
 logging_loki.emitter.LokiEmitter.level_tag = "level"
 
 handler = logging_loki.LokiHandler(
@@ -17,7 +27,14 @@ logger = logging.getLogger("system-admin-api")
 logger.setLevel(logging.INFO)
 logger.addHandler(handler)
 
+# --- OpenTelemetry setup ---
+resource = Resource(attributes={"service.name": "system-admin-api"})
+exporter = OTLPSpanExporter(endpoint="http://localhost:4318/v1/traces")
+provider = TracerProvider(resource=resource)
+provider.add_span_processor(BatchSpanProcessor(exporter))
+trace.set_tracer_provider(provider)
 
+# --- FastAPI ---
 app = FastAPI(title="System Admin API")
 
 app.add_middleware(
@@ -29,6 +46,7 @@ app.add_middleware(
 )
 
 Instrumentator().instrument(app).expose(app)
+FastAPIInstrumentor.instrument_app(app)
 
 app.include_router(auth.router)
 app.include_router(companies.router)
