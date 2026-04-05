@@ -26,42 +26,6 @@ def generar_reporte():
     except Exception as e:
         log(f"❌ Error: {e}")
 
-
-# ── Tarea 2: Detectar anomalías ────────────────────────
-# def detectar_anomalias():
-#     log("🔄 Detectando anomalías de precios...")
-#     try:
-#         # Necesitamos token para endpoints protegidos
-#         login = requests.post(f"{BASE_URL}/auth/login", data={
-#             "username": "josefina@gmail.com",
-#             "password": "123456"
-#         })
-#         token = login.json()["access_token"]
-#
-#         response = requests.get(
-#             f"{BASE_URL}/ml/price-anomalies",
-#             headers={"Authorization": f"Bearer {token}"}
-#         )
-#         if response.status_code == 200:
-#             data = response.json()
-#             total = data["summary"]["total_anomalies_found"]
-#             rate = data["summary"]["anomaly_rate"]
-#             log(f"✅ Anomalías detectadas: {total} ({rate})")
-#
-#             # Guardar resultado en archivo
-#             filename = f"anomalias_{datetime.now().strftime('%Y%m%d_%H%M')}.txt"
-#             with open(filename, 'w', encoding='utf-8') as f:
-#                 f.write(f"Reporte de anomalías — {datetime.now()}\n")
-#                 f.write(f"Total analizados: {data['summary']['total_prices_analyzed']}\n")
-#                 f.write(f"Anomalías encontradas: {total} ({rate})\n\n")
-#                 for a in data["anomalies"][:10]:
-#                     f.write(f"  - {a['product']} | {a['company']} | €{a['price']}\n")
-#             log(f"✅ Resultado guardado: {filename}")
-#         else:
-#             log(f"❌ Error: {response.status_code}")
-#     except Exception as e:
-#         log(f"❌ Error: {e}")
-
 # Anomalias PDF
 def detectar_anomalias():
     log("🔄 Detectando anomalías de precios...")

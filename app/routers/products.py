@@ -5,6 +5,8 @@ from datetime import datetime
 from app.database import get_db
 from app.models import Product
 from app.schemas import ProductResponse, ProductDetailResponse, ProductBase
+import logging
+logger = logging.getLogger("system-admin-api")
 
 router = APIRouter(
     prefix="/products",
@@ -14,6 +16,7 @@ router = APIRouter(
 
 @router.get("/", response_model=List[ProductResponse])
 def get_products(db: Session = Depends(get_db)):
+    logger.info("Listando products")
     return db.query(Product).filter(Product.deleted_at.is_(None)).all()
 
 

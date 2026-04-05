@@ -5,6 +5,8 @@ from datetime import datetime, date
 from app.database import get_db
 from app.models import Customer
 from app.schemas import CustomerResponse, CustomerDetailResponse, CustomerCreate
+import logging
+logger = logging.getLogger("system-admin-api")
 
 router = APIRouter(
     prefix="/customers",
@@ -13,6 +15,7 @@ router = APIRouter(
 
 @router.get("/", response_model=List[CustomerResponse])
 def get_customers(db: Session = Depends(get_db)):
+    logger.info("Listando customers")
     return db.query(Customer).filter(Customer.deleted_at.is_(None)).all()
 
 
@@ -24,6 +27,7 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
         .first()
     )
     if not customer:
+        logger.error("Cliente no encontrado")
         return {"error": "Cliente no encontrado"}
 
     customer.total_purchases = len(customer.purchases)

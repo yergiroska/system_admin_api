@@ -5,6 +5,8 @@ from datetime import datetime
 from app.database import get_db
 from app.models import Company
 from app.schemas import CompanyResponse, CompanyDetailResponse, CompanyBase
+import logging
+logger = logging.getLogger("system-admin-api")
 
 router = APIRouter(
     prefix="/companies",
@@ -14,6 +16,7 @@ router = APIRouter(
 
 @router.get("/", response_model=List[CompanyResponse])
 def get_companies(db: Session = Depends(get_db)):
+    logger.info("Listando companies")
     return db.query(Company).filter(Company.deleted_at.is_(None)).all()
 
 
