@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 from app.database import get_db
 from app.schemas import CompanyProductCreate
-from app.models import CompanyProduct, CompanyProductPrice, Company
+from app.models import CompanyProduct, CompanyProductPrice, Company, Product
 
 router = APIRouter(
     prefix="/company-products",
@@ -78,3 +78,33 @@ def create_company_product(data: CompanyProductCreate, db: Session = Depends(get
     db.add(price)
     db.commit()
     return {"message": "Asociación creada correctamente", "company_product_id": cp.id}
+
+@router.get("/company/{company_id}")
+def get_products_by_company(company_id: int, db: Session = Depends(get_db)):
+    results = (
+        db.query(
+            CompanyProduct.id,
+            Product.id.label("product_id"),
+            Product.name.label("product_name"),
+            CompanyProductPrice.price,
+        )
+        .join(Product, Product.id == CompanyProduct.product_id)
+        .join(CompanyProductPrice, CompanyProductPrice.company_product_id == CompanyProduct.id)
+        .filter(
+            CompanyProduct.company_id == company_id,
+            CompanyProduct.deleted_at.is_(None)
+        )
+        .order_by(CompanyProduct.id, CompanyProductPrice.created_at.desc())
+        .distinct(CompanyProduct.id)
+        .all()
+    )
+
+    return [
+        {
+            "company_product_id": r.id,
+            "product_id": r.product_id,
+            "product_name": r.product_name,
+            "price": float(r.price),
+        }
+        for r in results
+    ]
