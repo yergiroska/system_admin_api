@@ -1,0 +1,9 @@
+services:
+  api:
+    build: .
+    container_name: system-admin-api
+    env_file:
+      - .env.docker
+    ports:
+      - "8000:8000"
+    restart: unless-stopped

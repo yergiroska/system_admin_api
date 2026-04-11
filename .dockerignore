@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.git
+*.ipynb
+.ipynb_checkpoints/
+logs/
+*.pdf
+seed.py
+pipeline.py
