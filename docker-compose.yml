@@ -1,4 +1,17 @@
 services:
+  db:
+    image: postgres:17
+    container_name: system-admin-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 123456
+      POSTGRES_DB: system_admin
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
   api:
     build: .
     container_name: system-admin-api
@@ -6,4 +19,9 @@ services:
       - .env.docker
     ports:
       - "8000:8000"
+    depends_on:
+      - db
     restart: unless-stopped
+
+volumes:
+  postgres-data:
