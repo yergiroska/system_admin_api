@@ -1,0 +1,27 @@
+### Listar top clientes
+GET {{base_url}}/reports/top-customers
+Authorization: Bearer {{token}}
+
+### Vista previa de ventas
+GET {{base_url}}/reports/sales-summary/preview
+Authorization: Bearer {{token}}
+
+### Vista previa de top customer
+GET {{base_url}}/reports/top-customers/preview
+Authorization: Bearer {{token}}
+
+### Vista previa de anomalias
+GET {{base_url}}/reports/anomalies/preview
+Authorization: Bearer {{token}}
+
+### Vista previa de productos dormidos
+GET {{base_url}}/reports/dormant-products/preview
+Authorization: Bearer {{token}}
+
+### Vista previa de resumen mensual
+GET {{base_url}}/reports/monthly-summary/preview
+Authorization: Bearer {{token}}
+
+### Vista previa de ventas periodo
+GET {{base_url}}/reports/sales-by-date/preview
+Authorization: Bearer {{token}}

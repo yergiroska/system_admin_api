@@ -40,6 +40,32 @@ def get_companies_by_product(product_id: int, db: Session = Depends(get_db)):
         for r in results
     ]
 
+@router.get("/all")
+def get_all_company_products(db: Session = Depends(get_db)):
+    results = (
+        db.query(
+            CompanyProduct.id,
+            Company.name.label("company_name"),
+            Product.name.label("product_name"),
+            CompanyProductPrice.price,
+        )
+        .join(Company, Company.id == CompanyProduct.company_id)
+        .join(Product, Product.id == CompanyProduct.product_id)
+        .join(CompanyProductPrice, CompanyProductPrice.company_product_id == CompanyProduct.id)
+        .filter(CompanyProduct.deleted_at.is_(None))
+        .order_by(CompanyProduct.id, CompanyProductPrice.created_at.desc())
+        .distinct(CompanyProduct.id)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "company_name": r.company_name,
+            "product_name": r.product_name,
+            "price": float(r.price),
+        }
+        for r in results
+    ]
 
 @router.post("/")
 def create_company_product(data: CompanyProductCreate, db: Session = Depends(get_db)):

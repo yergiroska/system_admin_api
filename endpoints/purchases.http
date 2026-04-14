@@ -1,0 +1,19 @@
+### Listar productos
+GET {{base_url}}/purchases
+Authorization: Bearer {{token}}
+
+### Crear Compra
+POST {{base_url}}/purchases
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "customer_id": 3,
+  "company_product_id": 226,
+  "quantity": 2,
+  "unit_price": 2.50
+}
+
+### Listar compras de un cliente
+GET {{base_url}}/purchases/customer/15
+Authorization: Bearer {{token}}

@@ -80,6 +80,11 @@ class PurchaseResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class PurchaseCreate(BaseModel):
+    customer_id: int
+    company_product_id: int
+    quantity: int
+    unit_price: float
 
 # ─── Stats ─────────────────────────────────────────────
 class SalesByCompanyResponse(BaseModel):

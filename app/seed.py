@@ -1,6 +1,6 @@
 from faker import Faker
 from app.database import SessionLocal
-from app.models import User, Customer, Company, Product, CompanyProduct, CompanyProductPrice, Purchase
+from app.models import User, Customer, Company, Product, CompanyProduct, CompanyProductPrice, Purchase, Order
 from datetime import datetime, timedelta
 import random
 import string
@@ -129,32 +129,58 @@ def seed_users_and_customers(n=100):
 
 
 def seed_purchases(customers, company_products, n=500):
+    orders_created = 0
+    purchases_created = 0
+
     for _ in range(n):
         customer = random.choice(customers)
-        cp = random.choice(company_products)
+        # Cada orden tiene entre 1 y 5 productos
+        num_items = random.randint(1, 5)
+        selected_cps = random.sample(company_products, k=min(num_items, len(company_products)))
 
-        last_price = (
-            db.query(CompanyProductPrice)
-            .filter(CompanyProductPrice.company_product_id == cp.id)
-            .order_by(CompanyProductPrice.created_at.desc())
-            .first()
-        )
-        unit_price = float(last_price.price) if last_price else round(random.uniform(1, 50), 2)
-        quantity = random.randint(1, 20)
+        order_total = 0
+        order_date = fake.date_time_this_year()
 
-        purchase = Purchase(
+        order = Order(
             customer_id=customer.id,
-            company_product_id=cp.id,
-            unit_price=unit_price,
-            quantity=quantity,
-            total=round(unit_price * quantity, 2),
-            created_at=fake.date_time_this_year(),
+            total=0,
+            created_at=order_date,
             updated_at=datetime.now(),
         )
-        db.add(purchase)
+        db.add(order)
+        db.flush()
+
+        for cp in selected_cps:
+            last_price = (
+                db.query(CompanyProductPrice)
+                .filter(CompanyProductPrice.company_product_id == cp.id)
+                .order_by(CompanyProductPrice.created_at.desc())
+                .first()
+            )
+            unit_price = float(last_price.price) if last_price else round(random.uniform(1, 50), 2)
+            quantity = random.randint(1, 20)
+            total = round(unit_price * quantity, 2)
+            order_total += total
+
+            purchase = Purchase(
+                customer_id=customer.id,
+                company_product_id=cp.id,
+                unit_price=unit_price,
+                quantity=quantity,
+                total=total,
+                order_id=order.id,
+                created_at=order_date,
+                updated_at=datetime.now(),
+            )
+            db.add(purchase)
+            purchases_created += 1
+
+        order.total = round(order_total, 2)
+        orders_created += 1
+
     db.commit()
-    total = db.query(Purchase).count()
-    print(f"✅ {total} compras creadas")
+    print(f"✅ {orders_created} órdenes creadas")
+    print(f"✅ {purchases_created} compras creadas")
 
 
 if __name__ == "__main__":

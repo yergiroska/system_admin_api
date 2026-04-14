@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import companies, products, customers, purchases, stats, charts, reports, ml, auth, dashboard, company_products, alerts, ai
+from app.routers import companies, products, customers, purchases, stats, charts, reports, ml, auth, dashboard, company_products, alerts, ai, invoice, orders
 from prometheus_fastapi_instrumentator import Instrumentator
 import logging
 import logging_loki
@@ -53,6 +53,7 @@ app.include_router(companies.router)
 app.include_router(products.router)
 app.include_router(customers.router)
 app.include_router(purchases.router)
+app.include_router(invoice.router)
 app.include_router(stats.router)
 app.include_router(charts.router)
 app.include_router(reports.router)
@@ -61,6 +62,7 @@ app.include_router(dashboard.router)
 app.include_router(company_products.router)
 app.include_router(alerts.router)
 app.include_router(ai.router)
+app.include_router(orders.router)
 
 
 @app.get("/")

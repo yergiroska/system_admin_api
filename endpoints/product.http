@@ -1,0 +1,29 @@
+### Listar productos
+GET {{base_url}}/products
+Authorization: Bearer {{token}}
+
+> {%
+    console.log(response.body[0])
+%}
+
+### Crear producto
+POST {{base_url}}/products
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "name": "TEST JET",
+  "description": "TEST JET"
+}
+
+> {%
+
+    if (response.status === 200) {
+        client.global.set("product_id", response.body.id);
+    }
+%}
+
+### Buscar producto por ID
+GET {{base_url}}/products/{{product_id}}
+Content-Type: application/json
+Authorization: Bearer {{token}}

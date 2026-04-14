@@ -64,6 +64,8 @@ def get_styles():
     )
     return title_style, subtitle_style, section_style
 
+def fmt_eur(value: float) -> str:
+    return f"€{value:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 @router.get("/sales-summary")
 def report_sales_summary(db: Session = Depends(get_db)):
@@ -130,7 +132,7 @@ def report_sales_summary(db: Session = Depends(get_db)):
             str(i),
             r.name,
             str(r.total_purchases),
-            f"{float(r.total_sales):,.2f}€"
+            fmt_eur(float(r.total_sales))
         ])
 
     company_table = Table(company_data, colWidths=[1*cm, 10*cm, 3*cm, 4*cm], repeatRows=1, splitByRow=1)
@@ -173,7 +175,7 @@ def report_sales_summary(db: Session = Depends(get_db)):
             str(i),
             r.name,
             str(int(r.total_quantity)),
-            f"{float(r.total_sales):,.2f}€"
+            fmt_eur(float(r.total_sales))
         ])
 
     product_table = Table(product_data, colWidths=[1*cm, 10*cm, 3.5*cm, 3.5*cm], repeatRows=1, splitByRow=1)
@@ -198,6 +200,68 @@ def report_sales_summary(db: Session = Depends(get_db)):
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=reporte_ventas.pdf"}
     )
+
+@router.get("/sales-summary/preview")
+def preview_sales_summary(db: Session = Depends(get_db)):
+    total_purchases = db.query(func.count(Purchase.id)).scalar()
+    total_revenue = db.query(func.sum(Purchase.total)).scalar() or 0
+    total_customers = db.query(func.count(Customer.id)).scalar()
+    total_companies = db.query(func.count(Company.id)).scalar()
+
+    company_results = (
+        db.query(
+            Company.name,
+            func.count(Purchase.id).label("total_purchases"),
+            func.sum(Purchase.total).label("total_sales")
+        )
+        .join(CompanyProduct, CompanyProduct.company_id == Company.id)
+        .join(Purchase, Purchase.company_product_id == CompanyProduct.id)
+        .group_by(Company.name)
+        .order_by(func.sum(Purchase.total).desc())
+        .limit(15)
+        .all()
+    )
+
+    product_results = (
+        db.query(
+            Product.name,
+            func.sum(Purchase.quantity).label("total_quantity"),
+            func.sum(Purchase.total).label("total_sales")
+        )
+        .join(CompanyProduct, CompanyProduct.product_id == Product.id)
+        .join(Purchase, Purchase.company_product_id == CompanyProduct.id)
+        .group_by(Product.name)
+        .order_by(func.sum(Purchase.quantity).desc())
+        .limit(15)
+        .all()
+    )
+
+    return {
+        "summary": {
+            "total_purchases": total_purchases,
+            "total_revenue": round(float(total_revenue), 2),
+            "total_customers": total_customers,
+            "total_companies": total_companies,
+        },
+        "top_companies": [
+            {
+                "rank": i,
+                "name": r.name,
+                "total_purchases": r.total_purchases,
+                "total_sales": round(float(r.total_sales), 2),
+            }
+            for i, r in enumerate(company_results, 1)
+        ],
+        "top_products": [
+            {
+                "rank": i,
+                "name": r.name,
+                "total_quantity": int(r.total_quantity),
+                "total_sales": round(float(r.total_sales), 2),
+            }
+            for i, r in enumerate(product_results, 1)
+        ],
+    }
 
 @router.get("/top-customers")
 def report_top_customers(db: Session = Depends(get_db)):
@@ -234,8 +298,8 @@ def report_top_customers(db: Session = Depends(get_db)):
             f"{r.first_name} {r.last_name}",
             r.identity_document or "—",
             str(r.total_purchases),
-            f"€{float(r.total_spent):,.2f}",
-            f"€{float(r.avg_order):,.2f}",
+            fmt_eur(float(r.total_spent)),
+            fmt_eur(float(r.avg_order)),
         ])
 
     table = Table(data, colWidths=[1*cm, 5*cm, 3*cm, 2*cm, 3.5*cm, 3.5*cm], repeatRows=1, splitByRow=1)
@@ -260,6 +324,38 @@ def report_top_customers(db: Session = Depends(get_db)):
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=reporte_top_clientes.pdf"}
     )
+
+@router.get("/top-customers/preview")
+def preview_top_customers(db: Session = Depends(get_db)):
+    results = (
+        db.query(
+            Customer.first_name,
+            Customer.last_name,
+            Customer.identity_document,
+            func.count(Purchase.id).label("total_purchases"),
+            func.sum(Purchase.total).label("total_spent"),
+            func.avg(Purchase.total).label("avg_order"),
+        )
+        .join(Purchase, Purchase.customer_id == Customer.id)
+        .filter(Customer.deleted_at.is_(None))
+        .group_by(Customer.id, Customer.first_name, Customer.last_name, Customer.identity_document)
+        .order_by(func.sum(Purchase.total).desc())
+        .limit(10)
+        .all()
+    )
+    return {
+        "customers": [
+            {
+                "rank": i,
+                "name": f"{r.first_name} {r.last_name}",
+                "identity_document": r.identity_document or "—",
+                "total_purchases": r.total_purchases,
+                "total_spent": round(float(r.total_spent), 2),
+                "avg_order": round(float(r.avg_order), 2),
+            }
+            for i, r in enumerate(results, 1)
+        ]
+    }
 
 @router.get("/anomalies")
 def report_anomalies(db: Session = Depends(get_db)):
@@ -372,6 +468,63 @@ def report_anomalies(db: Session = Depends(get_db)):
         headers={"Content-Disposition": "attachment; filename=reporte_anomalias.pdf"}
     )
 
+@router.get("/anomalies/preview")
+def preview_anomalies(db: Session = Depends(get_db)):
+    from sklearn.ensemble import IsolationForest
+    from app.models import CompanyProductPrice
+    import pandas as pd
+
+    results = (
+        db.query(
+            CompanyProductPrice.id,
+            CompanyProductPrice.price,
+            CompanyProductPrice.created_at,
+            CompanyProduct.product_id,
+            CompanyProduct.company_id,
+            Product.name.label("product_name"),
+            Company.name.label("company_name"),
+        )
+        .join(CompanyProduct, CompanyProduct.id == CompanyProductPrice.company_product_id)
+        .join(Product, Product.id == CompanyProduct.product_id)
+        .join(Company, Company.id == CompanyProduct.company_id)
+        .all()
+    )
+
+    df = pd.DataFrame([{
+        "id": r.id,
+        "price": float(r.price),
+        "product_id": r.product_id,
+        "company_id": r.company_id,
+        "product_name": r.product_name,
+        "company_name": r.company_name,
+        "date": r.created_at,
+    } for r in results])
+
+    features = df[["price", "product_id", "company_id"]]
+    model = IsolationForest(contamination=0.05, random_state=42)
+    df["anomaly"] = model.fit_predict(features)
+    df["score"] = model.decision_function(features)
+    anomalies = df[df["anomaly"] == -1].sort_values("score")
+
+    return {
+        "summary": {
+            "total_analyzed": len(df),
+            "total_anomalies": len(anomalies),
+            "anomaly_rate": f"{round(len(anomalies) / len(df) * 100, 2)}%",
+        },
+        "anomalies": [
+            {
+                "rank": i,
+                "product": row["product_name"],
+                "company": row["company_name"],
+                "price": round(row["price"], 2),
+                "score": round(row["score"], 4),
+                "date": row["date"].strftime("%Y-%m-%d") if row["date"] else "—",
+            }
+            for i, (_, row) in enumerate(anomalies.iterrows(), 1)
+        ]
+    }
+
 @router.get("/dormant-products")
 def report_dormant_products(db: Session = Depends(get_db)):
     from app.models import Product, CompanyProduct, Purchase
@@ -433,6 +586,34 @@ def report_dormant_products(db: Session = Depends(get_db)):
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=reporte_productos_dormidos.pdf"}
     )
+
+@router.get("/dormant-products/preview")
+def preview_dormant_products(db: Session = Depends(get_db)):
+    subquery = db.query(CompanyProduct.product_id).join(
+        Purchase, Purchase.company_product_id == CompanyProduct.id
+    ).subquery()
+
+    results = (
+        db.query(Product)
+        .filter(
+            Product.deleted_at.is_(None),
+            ~Product.id.in_(subquery)
+        )
+        .all()
+    )
+
+    return {
+        "total": len(results),
+        "products": [
+            {
+                "rank": i,
+                "name": r.name,
+                "description": r.description or "—",
+                "created_at": r.created_at.strftime("%d/%m/%Y") if r.created_at else "—",
+            }
+            for i, r in enumerate(results, 1)
+        ]
+    }
 
 @router.get("/monthly-summary")
 def report_monthly_summary(db: Session = Depends(get_db)):
@@ -505,6 +686,49 @@ def report_monthly_summary(db: Session = Depends(get_db)):
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=reporte_mensual_empresas.pdf"}
     )
+
+@router.get("/monthly-summary/preview")
+def preview_monthly_summary(db: Session = Depends(get_db)):
+    from collections import defaultdict
+
+    results = (
+        db.query(
+            Company.name.label("company_name"),
+            func.date_trunc('month', Purchase.created_at).label("month"),
+            func.count(Purchase.id).label("total_purchases"),
+            func.sum(Purchase.total).label("total_sales"),
+        )
+        .join(CompanyProduct, CompanyProduct.company_id == Company.id)
+        .join(Purchase, Purchase.company_product_id == CompanyProduct.id)
+        .group_by(Company.name, func.date_trunc('month', Purchase.created_at))
+        .order_by(Company.name, func.date_trunc('month', Purchase.created_at))
+        .all()
+    )
+
+    company_data = defaultdict(list)
+    for r in results:
+        company_data[r.company_name].append(r)
+
+    return {
+        "companies": [
+            {
+                "name": company_name,
+                "months": [
+                    {
+                        "month": r.month.strftime("%Y-%m"),
+                        "total_purchases": r.total_purchases,
+                        "total_sales": round(float(r.total_sales), 2),
+                    }
+                    for r in rows
+                ],
+                "totals": {
+                    "total_purchases": sum(r.total_purchases for r in rows),
+                    "total_sales": round(sum(float(r.total_sales) for r in rows), 2),
+                }
+            }
+            for company_name, rows in company_data.items()
+        ]
+    }
 
 @router.get("/sales-by-date")
 def report_sales_by_date(
@@ -611,3 +835,62 @@ def report_sales_by_date(
         media_type="application/pdf",
         headers={"Content-Disposition": "attachment; filename=reporte_ventas_periodo.pdf"}
     )
+
+@router.get("/sales-by-date/preview")
+def preview_sales_by_date(
+    start_date: str = None,
+    end_date: str = None,
+    db: Session = Depends(get_db)
+):
+    from datetime import datetime as dt
+    from fastapi import HTTPException
+
+    # Construir filtros solo si se pasan fechas
+    filters = []
+    period = {"start_date": "Todos", "end_date": "Todos"}
+
+    if start_date and end_date:
+        try:
+            start = dt.strptime(start_date, "%Y-%m-%d")
+            end = dt.strptime(end_date, "%Y-%m-%d")
+            filters = [Purchase.created_at >= start, Purchase.created_at <= end]
+            period = {
+                "start_date": start.strftime("%d/%m/%Y"),
+                "end_date": end.strftime("%d/%m/%Y"),
+            }
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha incorrecto. Usa YYYY-MM-DD")
+
+    total_purchases = db.query(func.count(Purchase.id)).filter(*filters).scalar()
+    total_revenue = db.query(func.sum(Purchase.total)).filter(*filters).scalar() or 0
+
+    company_results = (
+        db.query(
+            Company.name,
+            func.count(Purchase.id).label("total_purchases"),
+            func.sum(Purchase.total).label("total_sales"),
+        )
+        .join(CompanyProduct, CompanyProduct.company_id == Company.id)
+        .join(Purchase, Purchase.company_product_id == CompanyProduct.id)
+        .filter(*filters)
+        .group_by(Company.name)
+        .order_by(func.sum(Purchase.total).desc())
+        .all()
+    )
+
+    return {
+        "period": period,
+        "summary": {
+            "total_purchases": total_purchases,
+            "total_revenue": round(float(total_revenue), 2),
+        },
+        "companies": [
+            {
+                "rank": i,
+                "name": r.name,
+                "total_purchases": r.total_purchases,
+                "total_sales": round(float(r.total_sales), 2),
+            }
+            for i, r in enumerate(company_results, 1)
+        ]
+    }

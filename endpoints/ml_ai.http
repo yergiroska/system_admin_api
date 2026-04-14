@@ -1,0 +1,33 @@
+### Listar customer-segments
+GET {{base_url}}/ml/customer-segments
+Authorization: Bearer {{token}}
+
+
+### Listar customer-segments
+POST {{base_url}}/ml/predict
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "unit_price": "3000",
+  "quantity": "300",
+  "company_product_id": "20"
+}
+
+
+### Analizar predicción
+POST {{base_url}}/ai/analyze-prediction
+    ?unit_price=3000
+    &quantity=300
+    &predicted_total=39429.54
+    &company_product_id=14
+Authorization: Bearer {{token}}
+
+
+### Analizar predicción
+POST {{base_url}}/ai/analyze-prediction
+    ?unit_price=10
+    &quantity=10
+    &predicted_total=39429.54
+    &company_product_id=19
+Authorization: Bearer {{token}}

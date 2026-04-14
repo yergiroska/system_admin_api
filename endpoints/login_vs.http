@@ -1,0 +1,11 @@
+
+### Login
+# @name login
+POST {{base_url}}/auth/login
+Content-Type: application/x-www-form-urlencoded
+
+username=josefina@gmail.com&password=123456
+
+### Listar productos
+GET {{base_url}}/products
+Authorization: Bearer {{login.response.body.access_token}}

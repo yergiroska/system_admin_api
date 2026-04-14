@@ -125,46 +125,112 @@ def analyze_prediction(
         unit_price: float,
         quantity: int,
         predicted_total: float,
-        product_name: str,
+        company_product_id: int,
+        mae: float,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
     try:
-        avg_price = db.query(func.avg(CompanyProductPrice.price)).scalar() or 0
-        avg_total = db.query(func.avg(Purchase.total)).scalar() or 0
+        product_name = (
+            db.query(Product.name)
+            .join(CompanyProduct, CompanyProduct.product_id == Product.id)
+            .filter(CompanyProduct.id == company_product_id)
+            .scalar() or "Desconocido"
+        )
+
+        avg_price = (
+            db.query(func.avg(CompanyProductPrice.price))
+            .filter(CompanyProductPrice.company_product_id == company_product_id)
+            .scalar() or 0
+        )
+
+        avg_quantity = (
+            db.query(func.avg(Purchase.quantity))
+            .filter(Purchase.company_product_id == company_product_id)
+            .scalar() or 0
+        )
+
+        diff_price_pct = ((unit_price - float(avg_price)) / float(avg_price) * 100) if avg_price else 0
+        diff_quantity_pct = ((quantity - float(avg_quantity)) / float(avg_quantity) * 100) if avg_quantity else 0
+        diff_abs = abs(quantity - float(avg_quantity))
+
+        # Status de precio
+        precio_status = "NORMAL"
+        if diff_price_pct > 30:
+            precio_status = "CARO"
+        elif diff_price_pct > 10:
+            precio_status = "LIGERAMENTE ELEVADO"
+        elif diff_price_pct < -40:
+            precio_status = "POSIBLE FRAUDE"
+        elif diff_price_pct < -10:
+            precio_status = "BARATO"
+
+        # Status de cantidad
+        cantidad_status = "NORMAL"
+        if diff_abs > 10 and diff_quantity_pct > 50:
+            cantidad_status = "INUSUALMENTE ALTA"
+
+        # Status de fiabilidad
+        fiabilidad_status = "FIABLE"
+        if mae / predicted_total * 100 > 30:
+            fiabilidad_status = "POCO FIABLE"
+
+        # Textos construidos en Python
+        if precio_status == "NORMAL":
+            if abs(diff_price_pct) < 2:
+                precio_info = f"El precio de €{unit_price} es prácticamente idéntico al histórico de €{float(avg_price):.2f} (diferencia de {diff_price_pct:+.1f}%)"
+            else:
+                precio_info = f"El precio de €{unit_price} es normal respecto al histórico de €{float(avg_price):.2f} ({diff_price_pct:+.1f}%)"
+        elif precio_status == "CARO":
+            precio_info = f"El precio de €{unit_price} es caro, un {diff_price_pct:.1f}% por encima del histórico de €{float(avg_price):.2f}"
+        elif precio_status == "LIGERAMENTE ELEVADO":
+            precio_info = f"El precio de €{unit_price} está ligeramente elevado, un {diff_price_pct:.1f}% sobre el histórico de €{float(avg_price):.2f}"
+        elif precio_status == "BARATO":
+            precio_info = f"El precio de €{unit_price} es bajo, un {abs(diff_price_pct):.1f}% por debajo del histórico de €{float(avg_price):.2f}"
+        else:
+            precio_info = f"El precio de €{unit_price} es un {abs(diff_price_pct):.1f}% inferior al histórico de €{float(avg_price):.2f}, puede indicar fraude o calidad comprometida"
+
+        if cantidad_status == "INUSUALMENTE ALTA":
+            cantidad_info = f"La cantidad de {quantity} unidades supera en {diff_abs:.0f} unidades el histórico de {float(avg_quantity):.0f} unidades"
+        else:
+            cantidad_info = f"La cantidad de {quantity} unidades es normal respecto al histórico de {float(avg_quantity):.0f} unidades"
+
+        fiabilidad_status = "FIABLE"
+        if mae / predicted_total * 100 > 30:
+            fiabilidad_status = "POCO FIABLE"
+
+        if fiabilidad_status == "POCO FIABLE":
+            fiabilidad_info = "La predicción tiene un margen de error elevado, tómala con cautela"
+        else:
+            fiabilidad_info = "La predicción del modelo es matemáticamente fiable"
 
         prompt = f"""
-        Se ha realizado una predicción de compra con estos datos:
-        - Producto: {product_name}
-        - Precio unitario: €{unit_price}
-        - Cantidad: {quantity}
-        - Total predicho: €{predicted_total:.2f}
+        Redacta un análisis de compra para el responsable de compras con exactamente 3 punto:
 
-        Datos del sistema para comparar:
-        - Precio promedio histórico: €{float(avg_price):.2f}
-        - Total promedio por compra: €{float(avg_total):.2f}
+        1. PRECIO: {precio_info}. Explica si debe preocuparse o no y por qué.
+        2. CANTIDAD: {cantidad_info}. Explica si tiene sentido para el negocio o si debe revisarlo.
+        3. FIABILIDAD: {fiabilidad_info}. Explica qué significa esto para la decisión de compra.
 
-        Analiza si esta compra es normal, cara o barata comparada con el histórico.
-        Da una recomendación concreta en 2-3 frases.
+        No cambies los números. Sé específico y útil para alguien que va a tomar una decisión de compra ahora mismo.
         """
 
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=[
-                {"role": "system",
-                 "content": "Eres un analista de negocios experto. Responde en español, de forma clara y directa."},
+                {"role": "system", "content": """Eres un asistente de análisis de compras para una plataforma de gestión empresarial B2B.
+                    Usa únicamente los datos proporcionados, sin calcular ni inferir valores no presentes.
+                    Si los datos son insuficientes, indícalo claramente.
+                    Responde en español, de forma concisa y profesional."""},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=200,
-            temperature=0.5,
+            max_tokens=500,
+            temperature=0.3,
         )
 
-        return {
-            "analysis": response.choices[0].message.content,
-        }
+        return {"analysis": response.choices[0].message.content}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error con Groq: {str(e)}")
-
 
 @router.post("/analyze-segments")
 def analyze_segments(

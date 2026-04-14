@@ -100,6 +100,10 @@ def predict_total(request: PredictRequest, db: Session = Depends(get_db),
 def customer_segments(db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)):
 
+    from datetime import datetime, timezone
+
+    hoy = datetime.now(timezone.utc)
+
     results = (
         db.query(
             Customer.id,
@@ -108,6 +112,7 @@ def customer_segments(db: Session = Depends(get_db),
             func.count(Purchase.id).label("total_purchases"),
             func.sum(Purchase.total).label("total_spent"),
             func.avg(Purchase.total).label("avg_order"),
+            func.max(Purchase.created_at).label("last_purchase"),
         )
         .join(Purchase, Purchase.customer_id == Customer.id)
         .group_by(Customer.id, Customer.first_name, Customer.last_name)
@@ -120,34 +125,39 @@ def customer_segments(db: Session = Depends(get_db),
         "total_purchases": r.total_purchases,
         "total_spent": float(r.total_spent),
         "avg_order": float(r.avg_order),
+        "days_since_last_purchase": (hoy - r.last_purchase.replace(tzinfo=timezone.utc)).days,
+        "last_purchase_date": r.last_purchase.strftime("%Y-%m-%d"),
     } for r in results])
 
-    features = df[["total_purchases", "total_spent", "avg_order"]]
-    scaler = StandardScaler()
-    features_scaled = scaler.fit_transform(features)
+    # Normalizar cada variable entre 0 y 1
+    def normalize(series):
+        min_val = series.min()
+        max_val = series.max()
+        if max_val == min_val:
+            return series * 0
+        return (series - min_val) / (max_val - min_val)
 
-    kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
-    df["cluster"] = kmeans.fit_predict(features_scaled)
+    df["r_score"] = 1 - normalize(df["days_since_last_purchase"])  # Invertido: menos días = mejor
+    df["f_score"] = normalize(df["total_purchases"])
+    df["m_score"] = normalize(df["total_spent"])
 
-    cluster_stats = df.groupby("cluster").agg(
-        total_customers=("id", "count"),
-        avg_purchases=("total_purchases", "mean"),
-        avg_spent=("total_spent", "mean"),
-        avg_order=("avg_order", "mean"),
-    ).reset_index()
+    df["rfm_score"] = (df["r_score"] * 0.3) + (df["f_score"] * 0.3) + (df["m_score"] * 0.4)
 
-    labels = {}
-    for _, row in cluster_stats.iterrows():
-        if row["avg_spent"] == cluster_stats["avg_spent"].max():
-            labels[row["cluster"]] = "VIP"
-        elif row["avg_spent"] == cluster_stats["avg_spent"].min():
-            labels[row["cluster"]] = "Dormido"
-        else:
-            labels[row["cluster"]] = "Medio"
-
-    df["segment"] = df["cluster"].map(labels)
+    # Segmentar por percentiles
+    df["segment"] = pd.cut(
+        df["rfm_score"],
+        bins=[0, 0.33, 0.66, 1.0],
+        labels=["Dormido", "Medio", "VIP"],
+        include_lowest=True
+    )
 
     segments = {}
+    criteria = {
+        "VIP": "Clientes con alto gasto, compras frecuentes y actividad reciente",
+        "Medio": "Clientes con actividad moderada y potencial de crecimiento",
+        "Dormido": "Clientes inactivos o con bajo volumen de compra",
+    }
+
     for segment in ["VIP", "Medio", "Dormido"]:
         group = df[df["segment"] == segment]
         segments[segment] = {
@@ -155,10 +165,17 @@ def customer_segments(db: Session = Depends(get_db),
             "avg_purchases": round(group["total_purchases"].mean(), 1),
             "avg_spent": round(group["total_spent"].mean(), 2),
             "avg_order": round(group["avg_order"].mean(), 2),
-            "customers": group[["id", "name", "total_purchases", "total_spent"]].to_dict(orient="records")
+            "criteria": criteria[segment],
+            "customers": group[["id", "name", "total_purchases", "total_spent", "days_since_last_purchase", "last_purchase_date", "rfm_score", ]].assign(
+                rfm_score=lambda x: x["rfm_score"].round(3)
+            ).to_dict(orient="records")
         }
 
-    return segments
+    return {
+        "method": "RFM Score",
+        "weights": {"recency": 0.3, "frequency": 0.3, "monetary": 0.4},
+        "segments": segments
+    }
 
 @router.get("/price-anomalies")
 def price_anomalies(db: Session = Depends(get_db),

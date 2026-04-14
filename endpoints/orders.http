@@ -1,0 +1,7 @@
+### Listar orden
+GET {{base_url}}/orders
+Authorization: Bearer {{token}}
+
+### Listar orden por customer
+GET {{base_url}}/orders/customer/3
+Authorization: Bearer {{token}}

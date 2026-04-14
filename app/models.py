@@ -39,6 +39,8 @@ class Customer(Base):
     user = relationship("User", back_populates="customer")
     purchases = relationship("Purchase", back_populates="customer")
 
+    orders = relationship("Order", back_populates="customer")
+
 
 class Company(Base):
     __tablename__ = "companies"
@@ -111,6 +113,9 @@ class Purchase(Base):
     customer = relationship("Customer", back_populates="purchases")
     company_product = relationship("CompanyProduct", back_populates="purchases")
 
+    order_id = Column(BigInteger, ForeignKey("orders.id"), nullable=True)
+    order = relationship("Order", back_populates="purchases")
+
 
 class UserLogin(Base):
     __tablename__ = "user_logins"
@@ -123,3 +128,16 @@ class UserLogin(Base):
     updated_at = Column(DateTime, nullable=True)
 
     user = relationship("User", back_populates="logins")
+
+
+class Order(Base):
+    __tablename__ = "orders"
+
+    id = Column(BigInteger, primary_key=True, index=True)
+    customer_id = Column(BigInteger, ForeignKey("customers.id"), nullable=False)
+    total = Column(Numeric, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, nullable=True)
+
+    customer = relationship("Customer", back_populates="orders")
+    purchases = relationship("Purchase", back_populates="order")
