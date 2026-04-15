@@ -33,35 +33,6 @@ POST {{base_url}}/ai/analyze-prediction
 Authorization: Bearer {{token}}
 
 
-### Listar customer-segments
-POST {{base_url}}/ai/chat
-Content-Type: application/json
-Authorization: Bearer {{token}}
-
-{
-  "message": "¿Qué clientes compran más?",
-  "history": []
-}
-
-### Follow-up con historial
-POST {{base_url}}/ai/chat
-Content-Type: application/json
-Authorization: Bearer {{token}}
-
-{
-  "message": "¿Y cuánto gastaron en total?",
-  "history": [
-    {
-      "role": "user",
-      "content": "¿Qué clientes compran más?"
-    },
-    {
-      "role": "assistant",
-      "content": "La herramienta me proporcionó la información de los 10 clientes que han realizado más compras en nuestra empresa. Los clientes con más compras son África Nogueira y Celso Ibañez, con 38 y 25 compras respectivamente."
-    }
-  ]
-}
-
 ### Chat con RAG
 POST {{base_url}}/ai/chat
 Content-Type: application/json
@@ -71,4 +42,17 @@ Authorization: Bearer {{token}}
   "message": "¿Qué clientes compran más?",
   "history": [],
   "session_id": "test-session-1"
+}
+
+### Follow-up con historial
+POST {{base_url}}/ai/chat
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "message": "¿Y los 10 primeros?",
+  "history": [
+    {"role": "user", "content": "¿Qué clientes compran más?"},
+    {"role": "assistant", "content": "Los clientes que compran más son África Nogueira..."}
+  ]
 }

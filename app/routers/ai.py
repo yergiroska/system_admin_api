@@ -190,7 +190,13 @@ GROQ_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Número de productos a retornar, por defecto 5"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Número de productos a retornar",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 20
+                    },
                     "order_by": {"type": "string", "enum": ["quantity", "total"], "description": "Ordenar por unidades vendidas o por ingresos"}
                 },
                 "required": []
@@ -205,7 +211,13 @@ GROQ_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Número de clientes a retornar, por defecto 5"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Número de clientes a retornar",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 20
+                    },
                     "order_by": {"type": "string", "enum": ["total", "count"], "description": "Ordenar por gasto total o por número de compras"}
                 },
                 "required": []
@@ -220,7 +232,13 @@ GROQ_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "limit": {"type": "integer", "description": "Número de empresas a retornar, por defecto 5"},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Número de empresas a retornar",
+                        "default": 5,
+                        "minimum": 1,
+                        "maximum": 20
+                    },
                     "order_by": {"type": "string", "enum": ["total", "purchases"], "description": "Ordenar por ingresos o por número de compras"}
                 },
                 "required": []
@@ -341,7 +359,8 @@ Nunca inventes datos — si no tienes información, usa una herramienta para obt
 
         # Añadir historial reciente del frontend
         for msg in request.history:
-            messages.append({"role": msg.role, "content": msg.content})
+            if msg.role in ["user", "assistant"]:
+                messages.append({"role": msg.role, "content": msg.content})
 
         messages.append({"role": "user", "content": request.message})
 
