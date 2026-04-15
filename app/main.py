@@ -8,6 +8,10 @@ from app.routers import (
     alerts, ai, invoice, orders
 )
 
+from app.database import engine
+from app import models
+models.Base.metadata.create_all(bind=engine)
+
 # --- FastAPI ---
 app = FastAPI(title="System Admin API")
 
