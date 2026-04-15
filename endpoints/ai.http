@@ -13,4 +13,3 @@ POST {{base_url}}/ai/analyze-prediction
     &predicted_total=90000
     &product_name=Harina
 Authorization: Bearer {{token}}
-
