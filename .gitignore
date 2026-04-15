@@ -10,3 +10,4 @@ __pycache__/
 airflow/
 .env.docker
 .idea/
+!requirements.prod.txt
