@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, BigInteger, String, Float, Numeric, ForeignKey, DateTime, Date, Text
 from sqlalchemy.orm import relationship
 from app.database import Base
-
+from pgvector.sqlalchemy import Vector
 
 class User(Base):
     __tablename__ = "users"
@@ -141,3 +141,14 @@ class Order(Base):
 
     customer = relationship("Customer", back_populates="orders")
     purchases = relationship("Purchase", back_populates="order")
+
+
+class ChatConversation(Base):
+    __tablename__ = "chat_conversations"
+
+    id = Column(BigInteger, primary_key=True, index=True)
+    session_id = Column(String, nullable=False)
+    role = Column(String, nullable=False)
+    content = Column(Text, nullable=False)
+    embedding = Column(Vector(384), nullable=True)
+    created_at = Column(DateTime, nullable=True)

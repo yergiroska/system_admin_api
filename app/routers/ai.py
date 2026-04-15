@@ -2,14 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
+import json
 from groq import Groq
 from app.database import get_db
-from app.models import Purchase, CompanyProduct, Company, Product, Customer, CompanyProductPrice
+from app.models import Purchase, CompanyProduct, Company, Product, Customer, CompanyProductPrice, ChatConversation
 from app.auth import get_current_user
 from app.models import User
 import os
 from dotenv import load_dotenv
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import text
+from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
@@ -21,12 +25,236 @@ router = APIRouter(
 os.environ["OTEL_SDK_DISABLED"] = "true"
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+def tool_top_products(db: Session, limit: int = 5, order_by: str = "quantity") -> str:
+    order_col = func.sum(Purchase.quantity) if order_by == "quantity" else func.sum(Purchase.total)
+    results = (
+        db.query(Product.name, func.sum(Purchase.quantity).label("total_units"), func.sum(Purchase.total).label("total_revenue"))
+        .join(CompanyProduct, CompanyProduct.product_id == Product.id)
+        .join(Purchase, Purchase.company_product_id == CompanyProduct.id)
+        .group_by(Product.name)
+        .order_by(order_col.desc())
+        .limit(limit)
+        .all()
+    )
+    rows = [f"- {r.name}: {int(r.total_units)} unidades · €{float(r.total_revenue):,.2f}" for r in results]
+    return "Top productos:\n" + "\n".join(rows)
 
+
+def tool_top_customers(db: Session, limit: int = 5, order_by: str = "total") -> str:
+    order_col = func.sum(Purchase.total) if order_by == "total" else func.count(Purchase.id)
+    results = (
+        db.query(
+            (Customer.first_name + " " + Customer.last_name).label("name"),
+            func.sum(Purchase.total).label("total_spent"),
+            func.count(Purchase.id).label("total_purchases")
+        )
+        .join(Purchase, Purchase.customer_id == Customer.id)
+        .group_by(Customer.first_name, Customer.last_name)
+        .order_by(order_col.desc())
+        .limit(limit)
+        .all()
+    )
+    rows = [f"- {r.name}: {int(r.total_purchases)} compras · €{float(r.total_spent):,.2f} gastado en total" for r in results]
+    return "Top clientes:\n" + "\n".join(rows)
+
+
+def tool_top_companies(db: Session, limit: int = 5, order_by: str = "total") -> str:
+    order_col = func.sum(Purchase.total) if order_by == "total" else func.count(Purchase.id)
+    results = (
+        db.query(Company.name, func.sum(Purchase.total).label("total_revenue"), func.count(Purchase.id).label("total_purchases"))
+        .join(CompanyProduct, CompanyProduct.company_id == Company.id)
+        .join(Purchase, Purchase.company_product_id == CompanyProduct.id)
+        .group_by(Company.name)
+        .order_by(order_col.desc())
+        .limit(limit)
+        .all()
+    )
+    rows = [f"- {r.name}: {int(r.total_purchases)} compras · €{float(r.total_revenue):,.2f}" for r in results]
+    return "Top empresas:\n" + "\n".join(rows)
+
+
+def tool_entity_detail(db: Session, entity_type: str, name: str) -> str:
+    name_filter = f"%{name}%"
+
+    if entity_type == "product":
+        results = (
+            db.query(Product.name, func.sum(Purchase.quantity).label("total_units"), func.sum(Purchase.total).label("total_revenue"), func.count(Purchase.id).label("total_purchases"))
+            .join(CompanyProduct, CompanyProduct.product_id == Product.id)
+            .join(Purchase, Purchase.company_product_id == CompanyProduct.id)
+            .filter(Product.name.ilike(name_filter))
+            .group_by(Product.name)
+            .first()
+        )
+        if not results:
+            return f"No encontré ningún producto con el nombre '{name}'."
+        return f"Producto '{results.name}': {int(results.total_units)} unidades vendidas · {int(results.total_purchases)} compras · €{float(results.total_revenue):,.2f} en ingresos"
+
+
+    elif entity_type == "customer":
+        results = (
+            db.query(
+                (Customer.first_name + " " + Customer.last_name).label("name"),
+                func.sum(Purchase.total).label("total_spent"),
+                func.count(Purchase.id).label("total_purchases")
+            )
+            .join(Purchase, Purchase.customer_id == Customer.id)
+            .filter((Customer.first_name + " " + Customer.last_name).ilike(name_filter))
+            .group_by(Customer.first_name, Customer.last_name)
+            .first()
+        )
+
+        if not results:
+            return f"No encontré ningún cliente con el nombre '{name}'."
+
+        return f"Cliente '{results.name}': {int(results.total_purchases)} compras · €{float(results.total_spent):,.2f} gastado en total"
+
+    elif entity_type == "company":
+        results = (
+            db.query(Company.name, func.sum(Purchase.total).label("total_revenue"), func.count(Purchase.id).label("total_purchases"))
+            .join(CompanyProduct, CompanyProduct.company_id == Company.id)
+            .join(Purchase, Purchase.company_product_id == CompanyProduct.id)
+            .filter(Company.name.ilike(name_filter))
+            .group_by(Company.name)
+            .first()
+        )
+        if not results:
+            return f"No encontré ninguna empresa con el nombre '{name}'."
+        return f"Empresa '{results.name}': {int(results.total_purchases)} compras · €{float(results.total_revenue):,.2f} en ingresos"
+
+    return "Tipo de entidad no reconocido. Usa 'product', 'customer' o 'company'."
+
+
+def tool_sales_summary(db: Session) -> str:
+    total_purchases = db.query(func.count(Purchase.id)).scalar()
+    total_revenue = db.query(func.sum(Purchase.total)).scalar() or 0
+    total_customers = db.query(func.count(Customer.id)).scalar()
+    total_companies = db.query(func.count(Company.id)).scalar()
+    total_products = db.query(func.count(Product.id)).scalar()
+    return (
+        f"Resumen general del negocio:\n"
+        f"- Total compras: {total_purchases}\n"
+        f"- Ingresos totales: €{float(total_revenue):,.2f}\n"
+        f"- Clientes activos: {total_customers}\n"
+        f"- Empresas: {total_companies}\n"
+        f"- Productos: {total_products}"
+    )
+
+def save_message(db: Session, session_id: str, role: str, content: str):
+    embedding = embedding_model.encode(content).tolist()
+    msg = ChatConversation(
+        session_id=session_id,
+        role=role,
+        content=content,
+        embedding=embedding,
+        created_at=func.now()
+    )
+    db.add(msg)
+    db.commit()
+
+
+def get_relevant_history(db: Session, session_id: str, query: str, limit: int = 5):
+    query_embedding = embedding_model.encode(query).tolist()
+    results = db.execute(
+        text("""
+            SELECT role, content
+            FROM chat_conversations
+            WHERE session_id = :session_id
+            ORDER BY embedding <=> CAST(:embedding AS vector)
+            LIMIT :limit
+        """),
+        {
+            "session_id": session_id,
+            "embedding": str(query_embedding),
+            "limit": limit
+        }
+    ).fetchall()
+    return results
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
 
 class ChatRequest(BaseModel):
     message: str
     context: Optional[str] = None
+    history: Optional[List[ChatMessage]] = []
+    session_id: Optional[str] = "default"
 
+GROQ_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_products",
+            "description": "Obtiene los productos más vendidos o con más ingresos",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Número de productos a retornar, por defecto 5"},
+                    "order_by": {"type": "string", "enum": ["quantity", "total"], "description": "Ordenar por unidades vendidas o por ingresos"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_customers",
+            "description": "Obtiene los clientes que más compran o más gastan, incluyendo número de compras Y monto total gastado en euros",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Número de clientes a retornar, por defecto 5"},
+                    "order_by": {"type": "string", "enum": ["total", "count"], "description": "Ordenar por gasto total o por número de compras"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_companies",
+            "description": "Obtiene las empresas con más ingresos o más compras",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {"type": "integer", "description": "Número de empresas a retornar, por defecto 5"},
+                    "order_by": {"type": "string", "enum": ["total", "purchases"], "description": "Ordenar por ingresos o por número de compras"}
+                },
+                "required": []
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_entity_detail",
+            "description": "Obtiene el detalle de un producto, cliente o empresa específico por nombre",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entity_type": {"type": "string", "enum": ["product", "customer", "company"], "description": "Tipo de entidad"},
+                    "name": {"type": "string", "description": "Nombre o parte del nombre de la entidad"}
+                },
+                "required": ["entity_type", "name"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_sales_summary",
+            "description": "Obtiene un resumen general del negocio: total compras, ingresos, clientes, empresas y productos",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    }
+]
 
 def get_business_context(db: Session) -> str:
     total_purchases = db.query(func.count(Purchase.id)).scalar()
@@ -92,30 +320,112 @@ def chat(
         current_user: User = Depends(get_current_user)
 ):
     try:
-        business_context = get_business_context(db)
+        session_id = f"user-{current_user.id}"
+        system_prompt = """Eres un asistente de análisis de negocios para el sistema System Admin.
+Tienes acceso a herramientas que consultan datos reales de la base de datos.
+SIEMPRE usa las herramientas disponibles para responder preguntas sobre productos, clientes, empresas o ventas.
+Responde siempre en español, de forma clara y concisa.
+Nunca inventes datos — si no tienes información, usa una herramienta para obtenerla."""
 
-        messages = [
-            {"role": "system", "content": business_context},
-            {"role": "user", "content": request.message}
-        ]
+        # Guardar mensaje del usuario
+        save_message(db, session_id, "user", request.message)
 
-        if request.context:
-            messages.insert(1, {
-                "role": "system",
-                "content": f"Contexto adicional: {request.context}"
-            })
+        # Recuperar historial relevante por similitud semántica
+        relevant_history = get_relevant_history(db, session_id, request.message)
 
+        # Construir mensajes
+        messages = [{"role": "system", "content": system_prompt}]
+
+        for row in relevant_history:
+            messages.append({"role": row.role, "content": row.content})
+
+        # Añadir historial reciente del frontend
+        for msg in request.history:
+            messages.append({"role": msg.role, "content": msg.content})
+
+        messages.append({"role": "user", "content": request.message})
+
+        # Primera llamada a Groq
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=messages,
-            max_tokens=500,
-            temperature=0.7,
+            tools=GROQ_TOOLS,
+            tool_choice="auto",
+            max_tokens=1000,
+            temperature=0.3,
         )
 
+        response_message = response.choices[0].message
+
+        if not response_message.tool_calls:
+            content = response_message.content or ""
+            if "<function=" in content:
+                raise HTTPException(status_code=500, detail="Error: tool call inválida")
+            save_message(db, session_id, "assistant", response_message.content)
+            return {
+                "response": response_message.content,
+                "model": response.model,
+            }
+
+        messages.append({
+            "role": "assistant",
+            "content": response_message.content or "",
+            "tool_calls": [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments
+                    }
+                }
+                for tc in response_message.tool_calls
+            ]
+        })
+
+        for tool_call in response_message.tool_calls:
+            fn_name = tool_call.function.name
+            fn_args = json.loads(tool_call.function.arguments)
+
+            if "limit" in fn_args:
+                fn_args["limit"] = int(fn_args["limit"])
+
+            if fn_name == "get_top_products":
+                result = tool_top_products(db, **fn_args)
+            elif fn_name == "get_top_customers":
+                result = tool_top_customers(db, **fn_args)
+            elif fn_name == "get_top_companies":
+                result = tool_top_companies(db, **fn_args)
+            elif fn_name == "get_entity_detail":
+                result = tool_entity_detail(db, **fn_args)
+            elif fn_name == "get_sales_summary":
+                result = tool_sales_summary(db)
+            else:
+                result = "Herramienta no reconocida."
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": result
+            })
+
+        final_response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.3,
+        )
+
+        final_content = final_response.choices[0].message.content
+
+        # Guardar respuesta del asistente
+        save_message(db, session_id, "assistant", final_content)
+
         return {
-            "response": response.choices[0].message.content,
-            "model": response.model,
+            "response": final_content,
+            "model": final_response.model,
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error con Groq: {str(e)}")
 
@@ -256,7 +566,7 @@ def analyze_segments(
         """
 
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system",
                  "content": "Eres un consultor de negocios experto en retención de clientes. Responde en español."},
