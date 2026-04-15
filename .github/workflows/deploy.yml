@@ -16,6 +16,7 @@ jobs:
           host: ${{ secrets.GCP_HOST }}
           username: ${{ secrets.GCP_USER }}
           key: ${{ secrets.GCP_SSH_KEY }}
+          port: 22
           script: |
             cd ~/system_admin_api
             git pull origin main
