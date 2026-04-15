@@ -1,16 +1,22 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from dotenv import load_dotenv
-from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-import os
 
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
 
 engine = create_engine(DATABASE_URL)
-SQLAlchemyInstrumentor().instrument(engine=engine)
+
+if ENVIRONMENT == "local":
+    try:
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+        SQLAlchemyInstrumentor().instrument(engine=engine)
+    except ImportError:
+        pass
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
